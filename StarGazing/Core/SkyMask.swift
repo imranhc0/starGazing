@@ -59,14 +59,20 @@ nonisolated struct SkyMask: Sendable {
         return result
     }
 
-    /// The mask scaled up to the full frame.
+    /// The mask scaled up to the full frame. The value is written to every colour channel
+    /// (a single-channel image is pure red, which `CIBlendWithMask` does not read).
     func ciImage() -> CIImage {
-        let data = values.withUnsafeBufferPointer { Data(buffer: $0) }
+        var rgba = [Float](repeating: 1, count: width * height * 4)
+        for (index, value) in values.enumerated() {
+            rgba[index * 4] = value
+            rgba[index * 4 + 1] = value
+            rgba[index * 4 + 2] = value
+        }
         let small = CIImage(
-            bitmapData: data,
-            bytesPerRow: width * MemoryLayout<Float>.size,
+            bitmapData: rgba.withUnsafeBufferPointer { Data(buffer: $0) },
+            bytesPerRow: width * 16,
             size: CGSize(width: width, height: height),
-            format: .Rf,
+            format: .RGBAf,
             colorSpace: nil
         )
         let scale = CGAffineTransform(scaleX: fullWidth / Double(width), y: fullHeight / Double(height))
