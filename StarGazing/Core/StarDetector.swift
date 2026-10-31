@@ -12,6 +12,7 @@ nonisolated enum StarDetector {
     static let maxStars = 500
     static let windowRadius = 3
     static let peakRadius = 2
+    static let suppressionRadius = 4.0
 
     static func detect(in image: CIImage) -> [StarCentroid] {
         let extent = image.extent.integral
@@ -59,7 +60,25 @@ nonisolated enum StarDetector {
             }
         }
 
-        return Array(stars.sorted { $0.flux > $1.flux }.prefix(maxStars))
+        return suppressDuplicates(stars.sorted { $0.flux > $1.flux })
+    }
+
+    /// A star centred on a pixel boundary leaves several equal peaks; keep only the
+    /// brightest of any that fall within `suppressionRadius` of each other.
+    private static func suppressDuplicates(_ brightestFirst: [StarCentroid]) -> [StarCentroid] {
+        var kept: [StarCentroid] = []
+        for star in brightestFirst {
+            let isDuplicate = kept.contains { other in
+                let dx = other.x - star.x
+                let dy = other.y - star.y
+                return (dx * dx + dy * dy).squareRoot() < suppressionRadius
+            }
+            if !isDuplicate {
+                kept.append(star)
+                if kept.count == maxStars { break }
+            }
+        }
+        return kept
     }
 
     private static func isLocalMaximum(_ lum: [Float], _ width: Int, _ row: Int, _ col: Int, _ value: Float) -> Bool {

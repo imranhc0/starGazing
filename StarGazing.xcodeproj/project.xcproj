@@ -61,13 +61,14 @@
         "SWIFT_VERSION": "5.0",
         "TARGETED_DEVICE_FAMILY": "1,2",
       },
-    },
-    {
+    }, {
       "name": "StarGazingTests",
       "id": "5A1B2C3D4E5F60718293A4B5",
       "product": "Products/StarGazingTests.xctest",
       "product-type": "bundle.unit-test",
-      "dependencies": [ "StarGazing" ],
+      "dependencies": [
+        "StarGazing",
+      ],
       "build-phases": [
         "compile-sources",
         "frameworks",

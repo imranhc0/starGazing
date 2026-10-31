@@ -94,7 +94,8 @@ final class StarAlignmentTests: XCTestCase {
 
         let gradient = CGGradient(
             colorSpace: gray,
-            colorComponents: [1, 0],
+            // Each colour needs gray + alpha components in a gray colour space.
+            colorComponents: [1, 1, 0, 1],
             locations: [0, 1],
             count: 2
         )!
