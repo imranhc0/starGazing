@@ -16,7 +16,7 @@ nonisolated struct Frame: Sendable {
     let iso: Double
 }
 
-nonisolated enum FrameFailure: Error, Equatable, Sendable {
+nonisolated enum FrameFailure: Error, Equatable, Sendable, Codable {
     case tooFewStars(found: Int)
     case noStars
     case misaligned
@@ -32,17 +32,19 @@ nonisolated enum StackRequestError: Error, Equatable {
 nonisolated struct StackRequest: Sendable {
     static let frameRange = 5...200
 
+    /// Identifies the run, so a resumed run finds its own checkpoint.
+    let id: UUID
     let frames: [Frame]
     let mode: StackMode
 
-    static func validated(frames: [Frame], mode: StackMode) throws -> StackRequest {
+    static func validated(frames: [Frame], mode: StackMode, id: UUID = UUID()) throws -> StackRequest {
         if frames.count < frameRange.lowerBound {
             throw StackRequestError.tooFewFrames(frames.count)
         }
         if frames.count > frameRange.upperBound {
             throw StackRequestError.tooManyFrames(frames.count)
         }
-        return StackRequest(frames: frames, mode: mode)
+        return StackRequest(id: id, frames: frames, mode: mode)
     }
 }
 

@@ -2,7 +2,7 @@ import Foundation
 
 /// A similarity transform (rotation, uniform scale, translation) that maps
 /// points of `from` onto `to`: x' = a·x − b·y + tx, y' = b·x + a·y + ty.
-nonisolated struct AlignmentTransform: Sendable, Equatable {
+nonisolated struct AlignmentTransform: Sendable, Equatable, Codable {
     let a: Double
     let b: Double
     let tx: Double

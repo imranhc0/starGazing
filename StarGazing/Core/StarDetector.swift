@@ -2,7 +2,7 @@ import CoreImage
 import Foundation
 
 /// A detected star. Coordinates are in Core Image space: origin bottom-left, pixel `i` spans `[i, i+1)`.
-nonisolated struct StarCentroid: Sendable, Equatable {
+nonisolated struct StarCentroid: Sendable, Equatable, Codable {
     let x: Double
     let y: Double
     let flux: Double
