@@ -1,9 +1,13 @@
 # StarGazing Style Sheet
 
-Derived from the reference design below. Colours were sampled from the image's pixels; sizes and
-shadows were measured or estimated from it (a 430 px wide phone frame, treated as a 390 pt screen,
-so 1 px is about 0.9 pt). Treat sizes as a starting point and confirm them against the designer's file.
+Derived from a reference design: a light, airy mobile UI with a periwinkle canvas, white cards, one
+royal-blue button and a cyan-to-blue gradient circle. Colours were sampled from the image's pixels;
+sizes and shadows were measured or estimated from it (a 430 px wide phone frame, treated as a 390 pt
+screen, so 1 px is about 0.9 pt). Treat sizes as a starting point and confirm them against the
+designer's file.
 
+The reference image is someone else's design, so it is not stored in this repository. Keep your own
+copy at `docs/design/style-reference.png` (that folder is ignored by Git).
 
 **Status:** reference only. The app today uses a dark starfield theme (`StarGazing/UI/Theme.swift`);
 adopting this sheet means replacing that file and restyling the three screens.
