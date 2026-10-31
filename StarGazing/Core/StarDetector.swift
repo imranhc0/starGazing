@@ -15,31 +15,11 @@ nonisolated enum StarDetector {
     static let suppressionRadius = 4.0
 
     static func detect(in image: CIImage) -> [StarCentroid] {
-        let extent = image.extent.integral
-        let width = Int(extent.width)
-        let height = Int(extent.height)
-        guard width > 2 * peakRadius, height > 2 * peakRadius else { return [] }
-
-        var pixels = [Float](repeating: 0, count: width * height * 4)
-        let context = CIContext(options: nil)
-        pixels.withUnsafeMutableBytes { buffer in
-            context.render(
-                image,
-                toBitmap: buffer.baseAddress!,
-                rowBytes: width * 16,
-                bounds: extent,
-                format: .RGBAf,
-                colorSpace: nil
-            )
+        guard let buffer = LuminanceBuffer.render(image),
+              buffer.width > 2 * peakRadius, buffer.height > 2 * peakRadius else {
+            return []
         }
-
-        // Luminance per pixel, in bitmap order: row 0 is the top of the image.
-        var luminance = [Float](repeating: 0, count: width * height)
-        for i in 0..<(width * height) {
-            luminance[i] = (pixels[i * 4] + pixels[i * 4 + 1] + pixels[i * 4 + 2]) / 3
-        }
-
-        return detect(luminance: luminance, width: width, height: height)
+        return detect(luminance: buffer.values, width: buffer.width, height: buffer.height)
     }
 
     /// Finds local peaks above a robust noise threshold and refines each with a
