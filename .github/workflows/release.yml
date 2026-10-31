@@ -1,0 +1,93 @@
+name: Release
+
+# Pushing a tag such as v1.0.0 builds the app and attaches the result to the release for that tag.
+#   git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the release and upload files to it
+
+jobs:
+  build:
+    name: Build and attach to release
+    # The project file uses the Xcode 27 format, so it needs an Xcode 27 runner. GitHub lists this
+    # image as a preview; once Xcode 27 is on a standard macOS image, switch to that label.
+    runs-on: xcode-27
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the Xcode version
+        run: |
+          xcodebuild -version
+          major=$(xcodebuild -version | awk 'NR==1 { split($2, v, "."); print v[1] }')
+          if [ "$major" -lt 27 ]; then
+            echo "::error::StarGazing needs Xcode 27 or newer, this runner has Xcode $major."
+            exit 1
+          fi
+
+      - name: Build for iPhone (unsigned)
+        run: |
+          xcodebuild build \
+            -project StarGazing.xcodeproj \
+            -scheme StarGazing \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            MARKETING_VERSION="${GITHUB_REF_NAME#v}" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}"
+
+      - name: Package the unsigned IPA
+        run: |
+          mkdir -p dist Payload
+          cp -R build/device/Build/Products/Release-iphoneos/StarGazing.app Payload/
+          zip -qry "dist/StarGazing-${GITHUB_REF_NAME}-unsigned.ipa" Payload
+
+      - name: Build for the simulator
+        run: |
+          xcodebuild build \
+            -project StarGazing.xcodeproj \
+            -scheme StarGazing \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/simulator \
+            CODE_SIGNING_ALLOWED=NO \
+            MARKETING_VERSION="${GITHUB_REF_NAME#v}" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}"
+
+      - name: Package the simulator app
+        run: |
+          ditto -c -k --keepParent \
+            build/simulator/Build/Products/Release-iphonesimulator/StarGazing.app \
+            "dist/StarGazing-${GITHUB_REF_NAME}-simulator.zip"
+
+      - name: Keep the build with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarGazing-${{ github.ref_name }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Attach the build to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "StarGazing $GITHUB_REF_NAME" \
+              --generate-notes \
+              --verify-tag \
+              $prerelease
+          fi
