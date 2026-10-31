@@ -79,7 +79,13 @@ private struct FailedView: View {
 }
 
 #Preview {
-    ContentView(model: StackViewModel(runner: PreviewRunner(), photos: SystemPhotosWriter()))
+    let folder = URL.temporaryDirectory.appendingPathComponent("preview-stargazing")
+    ContentView(model: StackViewModel(
+        runner: PreviewRunner(),
+        photos: SystemPhotosWriter(),
+        pendingStore: PendingJobStore(directory: folder.appendingPathComponent("pending")),
+        checkpoints: CheckpointStore(directory: folder.appendingPathComponent("checkpoints"))
+    ))
 }
 
 private struct PreviewRunner: StackRunner {

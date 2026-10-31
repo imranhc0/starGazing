@@ -5,7 +5,7 @@ import UIKit
 /// Debug-only screens with made-up data, so the animated screens can be launched and looked at
 /// without a photo library: `-demoScreen picker | run | result`.
 enum DemoScreen: String {
-    case picker, run, result
+    case picker, resume, run, result
 
     static var requested: DemoScreen? {
         let arguments = CommandLine.arguments
@@ -16,16 +16,43 @@ enum DemoScreen: String {
     @ViewBuilder
     var view: some View {
         switch self {
-        case .picker: DemoPicker()
+        case .picker: DemoPicker(unfinished: false)
+        case .resume: DemoPicker(unfinished: true)
         case .run: DemoRun()
         case .result: DemoResult()
         }
     }
 }
 
+private enum DemoModel {
+    /// A view model backed by a scratch folder. With `unfinished`, a stack that was stopped
+    /// part-way is waiting, so the picker shows its "resume" card.
+    static func make(unfinished: Bool = false) -> StackViewModel {
+        let folder = URL.temporaryDirectory.appendingPathComponent("demo-stargazing")
+        try? FileManager.default.removeItem(at: folder)
+        let pending = PendingJobStore(directory: folder.appendingPathComponent("pending"))
+        let checkpoints = CheckpointStore(directory: folder.appendingPathComponent("checkpoints"))
+        if unfinished {
+            let frames = (0..<40).map { index in
+                Frame(id: UUID(), assetID: "demo-\(index)", width: 4032, height: 3024,
+                      isRAW: true, exposureSeconds: 15, iso: 1600)
+            }
+            if let request = try? StackRequest.validated(frames: frames, mode: .mean) {
+                try? pending.save(request)
+                var checkpoint = Checkpoint(jobID: request.id)
+                checkpoint.completedFrameIDs = frames.prefix(17).map(\.id)
+                try? checkpoints.save(checkpoint)
+            }
+        }
+        return StackViewModel(runner: DemoRunner(), photos: DemoWriter(), pendingStore: pending, checkpoints: checkpoints)
+    }
+}
+
 private struct DemoPicker: View {
+    let unfinished: Bool
+
     var body: some View {
-        ContentView(model: StackViewModel(runner: DemoRunner(), photos: DemoWriter()))
+        ContentView(model: DemoModel.make(unfinished: unfinished))
     }
 }
 
@@ -54,7 +81,7 @@ private struct DemoRun: View {
 }
 
 private struct DemoResult: View {
-    @State private var model = StackViewModel(runner: DemoRunner(), photos: DemoWriter())
+    @State private var model = DemoModel.make()
     private let result: StackResult
     private let beforeImage: UIImage
 

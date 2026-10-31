@@ -14,9 +14,12 @@ struct StarGazingApp: App {
     init() {
         let background = BackgroundRunner()
         background.register()
+        AppFiles.purgeOldResults()
         _model = State(initialValue: StackViewModel(
             runner: AppStackRunner(background: background),
-            photos: SystemPhotosWriter()
+            photos: SystemPhotosWriter(),
+            pendingStore: PendingJobStore(directory: AppFiles.pending),
+            checkpoints: CheckpointStore(directory: AppFiles.checkpoints)
         ))
     }
 

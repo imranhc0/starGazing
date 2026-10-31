@@ -8,6 +8,8 @@ struct PickerView: View {
     @State private var mode: StackMode = .mean
     @State private var isStarting = false
     @State private var accessMessage: String?
+    @State private var report: PickReport?
+    @State private var readableFrames: [Frame] = []
     @Namespace private var modeNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -20,7 +22,13 @@ struct PickerView: View {
             Spacer(minLength: 24)
             header
             Spacer(minLength: 12)
+            if let pending = model.pending {
+                resumeCard(pending)
+            }
             pickerCard
+            if let report, let message = report.message {
+                reportCard(report, message)
+            }
             modePicker
             startButton
             if let accessMessage {
@@ -159,6 +167,58 @@ struct PickerView: View {
 
         let identifiers = selection.compactMap(\.itemIdentifier)
         let frames = await Task.detached { PhotosLibrary.frames(for: identifiers) }.value
-        await model.start(frames: frames, mode: mode)
+
+        // With limited access some chosen photos cannot be opened. Say so, never drop them quietly.
+        let outcome = PickReport(picked: selection.count, readable: frames.count)
+        if outcome.isComplete {
+            report = nil
+            await model.start(frames: frames, mode: mode)
+        } else {
+            readableFrames = frames
+            report = outcome
+        }
+    }
+
+    private func resumeCard(_ pending: StackViewModel.PendingStack) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Pick up where you left off", systemImage: "arrow.clockwise.circle")
+                .font(.headline)
+            Text("\(pending.framesAnalysed) of \(pending.request.frames.count) photos had been looked at when it stopped.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button("Resume stacking") { Task { await model.resume() } }
+                    .buttonStyle(.borderedProminent)
+                Button("Discard", role: .destructive) { model.discardPending() }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func reportCard(_ report: PickReport, _ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Some photos can't be read", systemImage: "exclamationmark.triangle")
+                .font(.headline)
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button("Add photos") { PhotosLibrary.presentLimitedPicker() }
+                    .buttonStyle(.bordered)
+                if report.canStack {
+                    Button("Stack the \(report.readable)") {
+                        Task { await model.start(frames: readableFrames, mode: mode) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 }

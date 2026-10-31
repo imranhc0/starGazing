@@ -13,10 +13,17 @@ struct RunView: View {
         progress.framesTotal > 0 ? Double(progress.framesDone) / Double(progress.framesTotal) : 0
     }
 
+    /// Frames count for most of the work; the final stack is the last share.
+    private var overall: Double {
+        let total = Double(progress.framesTotal + 1)
+        return (Double(progress.framesDone) + (progress.stackingFraction ?? 0)) / total
+    }
+
     private var statusLine: String {
-        progress.framesDone >= progress.framesTotal
-            ? "Combining photos"
-            : "Aligning photo \(progress.framesDone + 1) of \(progress.framesTotal)"
+        if let stacking = progress.stackingFraction {
+            return "Combining photos, \(Int(stacking * 100))%"
+        }
+        return "Looking at photo \(min(progress.framesDone + 1, progress.framesTotal)) of \(progress.framesTotal)"
     }
 
     var body: some View {
@@ -26,13 +33,13 @@ struct RunView: View {
                 Circle()
                     .stroke(.white.opacity(0.1), lineWidth: 6)
                 Circle()
-                    .trim(from: 0, to: fraction)
+                    .trim(from: 0, to: overall)
                     .stroke(
                         AngularGradient(colors: [Theme.aurora, Theme.starGold], center: .center),
                         style: StrokeStyle(lineWidth: 6, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                    .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: fraction)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: overall)
                 ForEach(0..<cardCount, id: \.self) { index in
                     card(index)
                 }
@@ -58,15 +65,16 @@ struct RunView: View {
             .animation(reduceMotion ? nil : .smooth, value: progress)
 
             Spacer()
-            Label("Stacking continues if you leave the app", systemImage: "moon.zzz")
+            Label("Keep StarGazing open while it works. If it is interrupted, you can pick up where it stopped.", systemImage: "hand.raised")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
         .padding(24)
         .sensoryFeedback(.impact(weight: .light), trigger: progress.framesDone)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Stacking your night sky")
-        .accessibilityValue("\(statusLine). \(Int(fraction * 100)) percent done.")
+        .accessibilityValue("\(statusLine). \(Int(overall * 100)) percent done.")
     }
 
     private func isMerged(_ index: Int) -> Bool {

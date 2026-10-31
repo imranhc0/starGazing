@@ -1,5 +1,6 @@
 import BackgroundTasks
 import Foundation
+import os
 
 /// Runs a `StackJob` under `BGContinuedProcessingTask`, so a stack the user started keeps going
 /// when the app leaves the foreground. The system shows the task's progress to the user and may
@@ -28,6 +29,7 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
 
     private let lock = NSLock()
     private var pending: [String: Pending] = [:]
+    private let logger = Logger(subsystem: "imranhc0.StarGazing", category: "background")
 
     /// Call once as the app starts.
     func register() {
@@ -55,10 +57,14 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
             lock.unlock()
 
             let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
-            request.strategy = .queue
+            // `.fail`, not `.queue`: a queued request can wait indefinitely (or be dropped when the
+            // app is swiped away) while the screen shows a run that has not started. Failing at
+            // once lets the caller run the job in the foreground instead.
+            request.strategy = .fail
             do {
                 try BGTaskScheduler.shared.submit(request)
             } catch {
+                logger.error("Background stacking was not scheduled: \(error.localizedDescription, privacy: .public)")
                 if takePending(identifier) != nil {
                     continuation.resume(throwing: SubmissionFailed(underlying: error))
                 }
@@ -78,14 +84,20 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
             return
         }
 
-        // One unit per frame, plus one for the final stack, so progress does not read as finished
-        // before the result is written.
-        task.progress.totalUnitCount = Int64(entry.framesTotal + 1)
+        // A hundred units per frame plus a hundred for the final stack, so progress keeps moving
+        // while the stack is built (a task that looks stalled can be ended by the system) and does
+        // not read as finished before the result is written.
+        task.progress.totalUnitCount = Int64((entry.framesTotal + 1) * 100)
 
-        let work = Task {
+        // The expiration handler is in place before any work starts.
+        let cancel = CancelBox()
+        task.expirationHandler = { cancel.cancel() }
+
+        cancel.set(Task {
             do {
                 let result = try await entry.job.run { progress in
-                    task.progress.completedUnitCount = Int64(progress.framesDone)
+                    let stacking = Int((progress.stackingFraction ?? 0) * 100)
+                    task.progress.completedUnitCount = Int64(progress.framesDone * 100 + stacking)
                     entry.onProgress(progress)
                 }
                 task.progress.completedUnitCount = task.progress.totalUnitCount
@@ -96,7 +108,29 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
                 task.setTaskCompleted(success: false)
                 entry.continuation.resume(throwing: error)
             }
+        })
+    }
+
+    /// Lets the expiration handler be installed before the work task exists.
+    private final class CancelBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: Task<Void, Never>?
+        private var cancelled = false
+
+        func set(_ task: Task<Void, Never>) {
+            lock.lock()
+            self.task = task
+            let alreadyCancelled = cancelled
+            lock.unlock()
+            if alreadyCancelled { task.cancel() }
         }
-        task.expirationHandler = { work.cancel() }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let task = self.task
+            lock.unlock()
+            task?.cancel()
+        }
     }
 }

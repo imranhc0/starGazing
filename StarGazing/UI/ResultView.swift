@@ -9,6 +9,7 @@ struct ResultView: View {
     @State private var after: UIImage?
     @State private var appeared = false
     @State private var isSaving = false
+    @State private var confirmingDiscard = false
 
     private var aspectRatio: CGFloat {
         guard let after, after.size.height > 0 else { return 4.0 / 3.0 }
@@ -34,10 +35,23 @@ struct ResultView: View {
                 saveSection
 
                 Button("Stack another set") {
-                    model.reset()
+                    if model.saved {
+                        model.reset()
+                    } else {
+                        confirmingDiscard = true
+                    }
                 }
                 .font(.subheadline.weight(.semibold))
                 .padding(.bottom, 24)
+                .confirmationDialog(
+                    "This stacked photo isn't saved yet.",
+                    isPresented: $confirmingDiscard,
+                    titleVisibility: .visible
+                ) {
+                    Button("Save to Photos") { Task { await save() } }
+                    Button("Discard it", role: .destructive) { model.reset() }
+                    Button("Cancel", role: .cancel) {}
+                }
             }
             .padding(.horizontal, 20)
         }

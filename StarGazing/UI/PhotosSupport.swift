@@ -1,18 +1,49 @@
 import Foundation
 import Photos
+import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Where the app keeps checkpoints and finished stacks.
+/// Where the app keeps checkpoints and finished stacks. None of it belongs in a backup: it is
+/// working data, and a finished stack can be hundreds of megabytes.
 nonisolated enum AppFiles {
     static var checkpoints: URL { directory("Checkpoints") }
+    static var pending: URL { directory("Pending") }
     static var results: URL { directory("Results") }
+
+    /// A finished stack that was never saved or cleared is kept this long.
+    static let resultLifetime: TimeInterval = 7 * 24 * 3600
 
     private static func directory(_ name: String) -> URL {
         let base = URL.applicationSupportDirectory.appendingPathComponent("StarGazing", isDirectory: true)
         let url = base.appendingPathComponent(name, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        excludeFromBackup(url)
         return url
+    }
+
+    static func excludeFromBackup(_ url: URL) {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var mutable = url
+        try? mutable.setResourceValues(values)
+    }
+
+    /// Deletes files in `directory` last modified more than `age` seconds ago.
+    static func purge(_ directory: URL, olderThan age: TimeInterval) {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey]
+        )) ?? []
+        for file in files {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modified, Date().timeIntervalSince(modified) > age {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+    }
+
+    static func purgeOldResults() {
+        purge(results, olderThan: resultLifetime)
     }
 }
 
@@ -32,7 +63,17 @@ nonisolated enum PhotosLibrary {
         guard status == .authorized || status == .limited else { throw PhotosAccessError.denied }
     }
 
-    /// Frame descriptions for the picked photos, in the order picked. Unknown identifiers are dropped.
+    /// Opens the system sheet where the user chooses which photos StarGazing may see, for the
+    /// limited-access case.
+    @MainActor
+    static func presentLimitedPicker() {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              let root = scene.keyWindow?.rootViewController else { return }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: root)
+    }
+
+    /// Frame descriptions for the picked photos, in the order picked. Photos the app is not allowed
+    /// to read (limited access) are left out; the caller compares counts and tells the user.
     static func frames(for identifiers: [String]) -> [Frame] {
         identifiers.compactMap { identifier in
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject else {

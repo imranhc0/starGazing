@@ -1,12 +1,12 @@
 import Foundation
 
-nonisolated enum StackMode: Sendable {
+nonisolated enum StackMode: Sendable, Codable {
     case mean
     case median
     case trails
 }
 
-nonisolated struct Frame: Sendable {
+nonisolated struct Frame: Sendable, Codable, Equatable {
     let id: UUID
     let assetID: String
     let width: Int
@@ -29,7 +29,7 @@ nonisolated enum StackRequestError: Error, Equatable {
     case tooManyFrames(Int)
 }
 
-nonisolated struct StackRequest: Sendable {
+nonisolated struct StackRequest: Sendable, Codable, Equatable {
     static let frameRange = 5...200
 
     /// Identifies the run, so a resumed run finds its own checkpoint.
