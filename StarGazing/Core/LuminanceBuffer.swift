@@ -24,22 +24,22 @@ nonisolated struct LuminanceBuffer: Sendable {
         let height = Int(bounds.height)
         guard width > 0, height > 0 else { return nil }
 
-        var pixels = [Float](repeating: 0, count: width * height * 4)
-        let context = FloatContext.make()
-        pixels.withUnsafeMutableBytes { buffer in
-            context.render(
-                source,
-                toBitmap: buffer.baseAddress!,
-                rowBytes: width * 16,
-                bounds: bounds,
-                format: .RGBAf,
-                colorSpace: nil
-            )
-        }
+        // Average the colour channels into the red one and render only that: one float per pixel
+        // instead of four, which matters for a full-size frame.
+        let third = CIVector(x: 1.0 / 3, y: 1.0 / 3, z: 1.0 / 3, w: 0)
+        let grey = source.applyingFilter("CIColorMatrix", parameters: ["inputRVector": third])
 
         var values = [Float](repeating: 0, count: width * height)
-        for i in 0..<(width * height) {
-            values[i] = (pixels[i * 4] + pixels[i * 4 + 1] + pixels[i * 4 + 2]) / 3
+        let context = FloatContext.make()
+        values.withUnsafeMutableBytes { buffer in
+            context.render(
+                grey,
+                toBitmap: buffer.baseAddress!,
+                rowBytes: width * MemoryLayout<Float>.size,
+                bounds: bounds,
+                format: .Rf,
+                colorSpace: nil
+            )
         }
         return LuminanceBuffer(width: width, height: height, values: values)
     }

@@ -34,7 +34,15 @@ nonisolated struct Stacker: Sendable {
 
     /// Combines the frames over `tile` and returns the result, positioned at `tile.origin`.
     /// Pixels no frame covers come back transparent.
-    func stack(_ frames: [AlignedFrame], mode: StackMode, tile: TileRect) -> CIImage {
+    ///
+    /// Reports progress (0 to 1) after each chunk and stops with `CancellationError` between
+    /// chunks, so a long stack can show that it is alive and can be ended by the system.
+    func stack(
+        _ frames: [AlignedFrame],
+        mode: StackMode,
+        tile: TileRect,
+        progress: (Double) -> Void = { _ in }
+    ) throws -> CIImage {
         let rect = tile.rect.integral
         let width = Int(rect.width)
         let height = Int(rect.height)
@@ -42,9 +50,18 @@ nonisolated struct Stacker: Sendable {
 
         let warped = frames.map(Self.warped)
         let context = FloatContext.make()
-        var output = [Float](repeating: 0, count: width * height * 4)
 
-        for chunk in chunks(of: rect) {
+        // One output buffer for the whole tile, handed to Core Image without a second copy.
+        let rowBytes = width * 16
+        let byteCount = rowBytes * height
+        guard let output = calloc(1, byteCount) else { throw CocoaError(.fileWriteOutOfSpace) }
+        var ownsOutput = true
+        defer { if ownsOutput { free(output) } }
+
+        let allChunks = chunks(of: rect)
+        for (index, chunk) in allChunks.enumerated() {
+            try Task.checkCancellation()
+
             let chunkWidth = Int(chunk.width)
             let chunkHeight = Int(chunk.height)
             let buffers = warped.map { Self.render($0, over: chunk, with: context) }
@@ -53,19 +70,20 @@ nonisolated struct Stacker: Sendable {
             // Bitmap rows run top-down, so place the chunk by its top edge.
             let firstRow = Int(rect.maxY - chunk.maxY)
             let firstColumn = Int(chunk.minX - rect.minX)
-            for row in 0..<chunkHeight {
-                let source = row * chunkWidth * 4
-                let destination = ((firstRow + row) * width + firstColumn) * 4
-                output.replaceSubrange(
-                    destination..<(destination + chunkWidth * 4),
-                    with: reduced[source..<(source + chunkWidth * 4)]
-                )
+            reduced.withUnsafeBytes { source in
+                for row in 0..<chunkHeight {
+                    let destination = output + (firstRow + row) * rowBytes + firstColumn * 16
+                    memcpy(destination, source.baseAddress! + row * chunkWidth * 16, chunkWidth * 16)
+                }
             }
+            progress(Double(index + 1) / Double(allChunks.count))
         }
 
+        let data = Data(bytesNoCopy: output, count: byteCount, deallocator: .free)
+        ownsOutput = false
         return CIImage(
-            bitmapData: output.withUnsafeBufferPointer { Data(buffer: $0) },
-            bytesPerRow: width * 16,
+            bitmapData: data,
+            bytesPerRow: rowBytes,
             size: CGSize(width: width, height: height),
             format: .RGBAf,
             colorSpace: nil

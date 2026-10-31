@@ -7,52 +7,80 @@ final class StackerTests: XCTestCase {
     private let size = 32
     private var fullTile: TileRect { .full(of: CGRect(x: 0, y: 0, width: size, height: size)) }
 
-    func testMeanOfConstantFramesIsTheConstant() {
-        let out = Stacker().stack(constantFrames([0.2, 0.2, 0.2]), mode: .mean, tile: fullTile)
+    func testMeanOfConstantFramesIsTheConstant() throws {
+        let out = try Stacker().stack(constantFrames([0.2, 0.2, 0.2]), mode: .mean, tile: fullTile)
         XCTAssertEqual(pixel(out, 0, 0).r, 0.2, accuracy: 1e-4)
     }
 
-    func testSigmaClipRemovesBrightSatelliteFromFiveFrames() {
-        let out = Stacker().stack(constantFrames([0.2, 0.2, 0.2, 0.2, 0.95]), mode: .mean, tile: fullTile)
+    func testSigmaClipRemovesBrightSatelliteFromFiveFrames() throws {
+        let out = try Stacker().stack(constantFrames([0.2, 0.2, 0.2, 0.2, 0.95]), mode: .mean, tile: fullTile)
         XCTAssertEqual(pixel(out, 10, 10).r, 0.2, accuracy: 0.01)
     }
 
-    func testMedianRemovesOutlier() {
-        let out = Stacker().stack(constantFrames([0.2, 0.21, 0.2, 0.19, 0.95]), mode: .median, tile: fullTile)
+    func testMedianRemovesOutlier() throws {
+        let out = try Stacker().stack(constantFrames([0.2, 0.21, 0.2, 0.19, 0.95]), mode: .median, tile: fullTile)
         XCTAssertEqual(pixel(out, 10, 10).r, 0.2, accuracy: 0.02)
     }
 
-    func testTrailsKeepMaximumPerPixel() {
-        let out = Stacker().stack(constantFrames([0.1, 0.9, 0.3]), mode: .trails, tile: fullTile)
+    func testTrailsKeepMaximumPerPixel() throws {
+        let out = try Stacker().stack(constantFrames([0.1, 0.9, 0.3]), mode: .trails, tile: fullTile)
         XCTAssertEqual(pixel(out, 10, 10).r, 0.9, accuracy: 1e-4)
     }
 
-    func testTiledResultMatchesWholeImage() {
+    func testTiledResultMatchesWholeImage() throws {
         let frames = randomFrames(count: 5)
         let tile = TileRect.full(of: CGRect(x: 0, y: 0, width: 100, height: 100))
-        let whole = Stacker(tileSize: 10_000).stack(frames, mode: .mean, tile: tile)
-        let tiled = Stacker(tileSize: 64).stack(frames, mode: .mean, tile: tile)
+        let whole = try Stacker(tileSize: 10_000).stack(frames, mode: .mean, tile: tile)
+        let tiled = try Stacker(tileSize: 64).stack(frames, mode: .mean, tile: tile)
 
         XCTAssertLessThan(maxDifference(whole, tiled, width: 100, height: 100), 1e-4)
     }
 
-    func testTransformMapsEachFrameOntoTheReference() {
+    func testStackReportsProgressAfterEachChunk() throws {
+        var seen: [Double] = []
+        let tile = TileRect.full(of: CGRect(x: 0, y: 0, width: 100, height: 100))
+        _ = try Stacker(tileSize: 64).stack(randomFrames(count: 3), mode: .mean, tile: tile) { seen.append($0) }
+
+        // 100x100 in 64-pixel chunks is four chunks.
+        XCTAssertEqual(seen, [0.25, 0.5, 0.75, 1.0])
+    }
+
+    func testStackStopsWhenTheTaskIsCancelled() async {
+        let frames = constantFrames([0.2, 0.2, 0.2])
+        let tile = fullTile
+        let task = Task { () throws -> CIImage in
+            // Wait for the cancellation, so the stack starts from a cancelled task.
+            while !Task.isCancelled { await Task.yield() }
+            return try Stacker().stack(frames, mode: .mean, tile: tile)
+        }
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("expected the stack to stop")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
+
+    func testTransformMapsEachFrameOntoTheReference() throws {
         // A star at (10,10) in frame A and at (15,12) in frame B. B's transform maps B onto A's grid.
         let a = AlignedFrame(linear: image(dots: [(10, 10, 1)]), transform: AlignmentTransform(a: 1, b: 0, tx: 0, ty: 0))
         let b = AlignedFrame(
             linear: image(dots: [(15, 12, 1)]),
             transform: AlignmentTransform(a: 1, b: 0, tx: -5, ty: -2)
         )
-        let out = Stacker().stack([a, b], mode: .mean, tile: fullTile)
+        let out = try Stacker().stack([a, b], mode: .mean, tile: fullTile)
 
         XCTAssertEqual(pixel(out, 10, 10).r, 1.0, accuracy: 1e-3)
     }
 
-    func testPixelsMissingFromOneFrameUseTheOthers() {
+    func testPixelsMissingFromOneFrameUseTheOthers() throws {
         // B is shifted left by 5, so it has no data in the rightmost 5 columns; A's value must survive.
         let a = AlignedFrame(linear: image(fill: 0.4), transform: AlignmentTransform(a: 1, b: 0, tx: 0, ty: 0))
         let b = AlignedFrame(linear: image(fill: 0.8), transform: AlignmentTransform(a: 1, b: 0, tx: -5, ty: 0))
-        let out = Stacker().stack([a, b], mode: .trails, tile: fullTile)
+        let out = try Stacker().stack([a, b], mode: .trails, tile: fullTile)
 
         XCTAssertEqual(pixel(out, 30, 5).r, 0.4, accuracy: 1e-3)
         XCTAssertEqual(pixel(out, 10, 5).r, 0.8, accuracy: 1e-3)

@@ -24,19 +24,53 @@ final class FrameLoaderTests: XCTestCase {
         XCTAssertEqual(try FrameLoader.validate([frame(isRAW: false), frame(isRAW: false)]), .lossy)
     }
 
-    func testOrientationIsNormalizedToUpright() async throws {
-        // Stored 40x20 with EXIF orientation 6 (rotate 90°) displays as 20x40.
-        let rotated = makeJPEG(width: 40, height: 20, orientation: 6)
-        let upright = makeJPEG(width: 20, height: 40, orientation: 1)
-        let source = FakeFrameSource(data: [rotated.id: rotated.data, upright.id: upright.data])
+    func testFramesStayInSensorOrientationAndReportTheirTag() async throws {
+        // A phone on a tripod pointing at the sky writes the same sensor data every time, but the
+        // orientation tag can flip between shots. Frames must not be rotated by their own tag.
+        let tagged = makeJPEG(width: 40, height: 20, orientation: 6)
+        let other = makeJPEG(width: 40, height: 20, orientation: 1)
+        let source = FakeFrameSource(data: [tagged.id: tagged.data, other.id: other.data])
 
         let batch = try await FrameLoader.load(
-            [frame(id: rotated.id, isRAW: false), frame(id: upright.id, isRAW: false)],
+            [frame(id: tagged.id, isRAW: false), frame(id: other.id, isRAW: false)],
             source: source
         )
 
         XCTAssertEqual(batch.frames.count, 2)
-        XCTAssertEqual(batch.frames[0].linear.extent.size, batch.frames[1].linear.extent.size)
+        XCTAssertEqual(batch.frames[0].linear.extent.size, CGSize(width: 40, height: 20))
+        XCTAssertEqual(batch.frames[1].linear.extent.size, CGSize(width: 40, height: 20))
+        XCTAssertEqual(batch.frames[0].orientation, .right)
+        XCTAssertEqual(batch.frames[1].orientation, .up)
+    }
+
+    func testBatchSizeComesFromTheDecodedPixelsNotPhotosMetadata() async throws {
+        // Photos reports display-oriented sizes (20x40 here); the decoded sensor data is 40x20.
+        let shot = makeJPEG(width: 40, height: 20, orientation: 6)
+        let batch = try await FrameLoader.load(
+            [frame(id: shot.id, isRAW: false, width: 20, height: 40)],
+            source: FakeFrameSource(data: [shot.id: shot.data])
+        )
+
+        XCTAssertEqual(batch.width, 40)
+        XCTAssertEqual(batch.height, 20)
+    }
+
+    func testSizesAreComparedIgnoringOrientation() throws {
+        XCTAssertNoThrow(try FrameLoader.validate([
+            frame(isRAW: false, width: 4032, height: 3024),
+            frame(isRAW: false, width: 3024, height: 4032),
+        ]))
+    }
+
+    func testJpegGreyKeepsItsLinearValue() async throws {
+        // sRGB 0.5 grey is 0.2158 in linear light. Converting twice would give about 0.04.
+        let grey = makeJPEG(width: 16, height: 16, orientation: 1, grey: 0.5)
+        let batch = try await FrameLoader.load(
+            [frame(id: grey.id, isRAW: false, width: 16, height: 16)],
+            source: FakeFrameSource(data: [grey.id: grey.data])
+        )
+
+        XCTAssertEqual(TestImages.pixel(batch.frames[0].linear, 8, 8).r, 0.2158, accuracy: 0.01)
     }
 
     func testUnreadableFrameIsReportedNotFatal() async throws {
@@ -83,8 +117,10 @@ final class FrameLoaderTests: XCTestCase {
         }
     }
 
-    private func makeJPEG(width: Int, height: Int, orientation: Int) -> (id: UUID, data: Data) {
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+    private func makeJPEG(width: Int, height: Int, orientation: Int, grey: CGFloat? = nil) -> (id: UUID, data: Data) {
+        // Tagged sRGB, as a phone's JPEG is. A device-RGB image would be saved with a gamma 1.8
+        // profile, which Core Image rightly honours.
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
         let context = CGContext(
             data: nil,
             width: width,
@@ -94,7 +130,13 @@ final class FrameLoaderTests: XCTestCase {
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
         )!
-        context.setFillColor(CGColor(red: 0.2, green: 0.3, blue: 0.6, alpha: 1))
+        // srgbRed, because CGColor(red:green:blue:alpha:) is in the generic RGB space and would be
+        // converted when it is drawn into this sRGB image.
+        if let grey {
+            context.setFillColor(CGColor(srgbRed: grey, green: grey, blue: grey, alpha: 1))
+        } else {
+            context.setFillColor(CGColor(srgbRed: 0.2, green: 0.3, blue: 0.6, alpha: 1))
+        }
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         let image = context.makeImage()!
 
