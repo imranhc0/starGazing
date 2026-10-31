@@ -48,7 +48,7 @@ nonisolated struct StackRequest: Sendable {
     }
 }
 
-nonisolated struct StackResult: Sendable {
+nonisolated struct StackResult: Sendable, Equatable {
     let outputURL: URL
     let usedFrameIDs: [UUID]
     let failures: [UUID: FrameFailure]

@@ -13,9 +13,17 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
     /// Each submitted task gets this prefix plus a unique suffix, as the SDK requires.
     static let identifierPrefix = "imranhc0.StarGazing.stacking."
 
+    /// The system declined to schedule the task (not permitted, no room, simulator).
+    /// The caller can run the job in the foreground instead.
+    struct SubmissionFailed: Error {
+        let underlying: Error
+    }
+
     private struct Pending {
         let job: StackJob
         let framesTotal: Int
+        let onProgress: @Sendable (JobProgress) -> Void
+        let continuation: CheckedContinuation<StackResult, Error>
     }
 
     private let lock = NSLock()
@@ -29,26 +37,33 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
         }
     }
 
-    /// Asks the system to run the job now and keep it going in the background.
-    /// Returns the identifier of the submitted task.
-    @discardableResult
-    func start(_ job: StackJob, framesTotal: Int, title: String, subtitle: String) throws -> String {
+    /// Submits the job to the system and waits for its result. Throws `SubmissionFailed`
+    /// before the job has started if the system will not run it.
+    func run(
+        _ job: StackJob,
+        framesTotal: Int,
+        title: String,
+        subtitle: String,
+        onProgress: @escaping @Sendable (JobProgress) -> Void
+    ) async throws -> StackResult {
         let identifier = Self.identifierPrefix + UUID().uuidString
-        lock.lock()
-        pending[identifier] = Pending(job: job, framesTotal: framesTotal)
-        lock.unlock()
-
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
-        request.strategy = .queue
-        do {
-            try BGTaskScheduler.shared.submit(request)
-        } catch {
+        return try await withCheckedThrowingContinuation { continuation in
             lock.lock()
-            pending[identifier] = nil
+            pending[identifier] = Pending(
+                job: job, framesTotal: framesTotal, onProgress: onProgress, continuation: continuation
+            )
             lock.unlock()
-            throw error
+
+            let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
+            request.strategy = .queue
+            do {
+                try BGTaskScheduler.shared.submit(request)
+            } catch {
+                if takePending(identifier) != nil {
+                    continuation.resume(throwing: SubmissionFailed(underlying: error))
+                }
+            }
         }
-        return identifier
     }
 
     private func takePending(_ identifier: String) -> Pending? {
@@ -69,14 +84,17 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
 
         let work = Task {
             do {
-                _ = try await entry.job.run { progress in
+                let result = try await entry.job.run { progress in
                     task.progress.completedUnitCount = Int64(progress.framesDone)
+                    entry.onProgress(progress)
                 }
                 task.progress.completedUnitCount = task.progress.totalUnitCount
                 task.setTaskCompleted(success: true)
+                entry.continuation.resume(returning: result)
             } catch {
                 // Cancelled by expiration or failed: the checkpoint is already saved.
                 task.setTaskCompleted(success: false)
+                entry.continuation.resume(throwing: error)
             }
         }
         task.expirationHandler = { work.cancel() }

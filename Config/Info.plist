@@ -6,6 +6,8 @@
 	<array>
 		<string>imranhc0.StarGazing.stacking.*</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>StarGazing reads the night-sky photos you choose so it can stack them into one image.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>StarGazing saves finished star stacks to your photo library.</string>
 </dict>
