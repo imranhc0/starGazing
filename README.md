@@ -97,7 +97,9 @@ docs/                design spec, implementation plan, style sheet, release guid
 - **No mask brush and no stretch or denoise sliders yet.** The design calls for both. When the
   automatic sky mask is wrong, there is no way to correct it.
 - **Background stacking is unproven.** It uses iOS 26's continued processing task and falls back to
-  running in the foreground, so keep the app open while it works. A copy re-signed by a
+  running in the foreground, so keep the app open while it works. The simulator never runs these
+  tasks ("BGTaskScheduler is not available on this platform"), so there stacking always runs in the
+  foreground. A copy re-signed by a
   side-loading tool gets a new bundle ID and loses the background option.
 - **The foreground is not aligned.** That suits a camera on a tripod. Handheld or sky-tracking shots
   would blur the ground.

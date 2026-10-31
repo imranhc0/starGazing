@@ -6,12 +6,12 @@ import os
 /// when the app leaves the foreground. The system shows the task's progress to the user and may
 /// expire it; the job's checkpoint is what lets the next launch resume.
 ///
-/// Only the system can schedule these tasks, so this is checked by building and by running on a
-/// device, not by unit tests.
+/// Only the system can decide whether to run these tasks, so what it does with one can only be
+/// seen by running on a device; the tests check that scheduling one never crashes the app.
 nonisolated final class BackgroundRunner: @unchecked Sendable {
-    /// The wildcard listed in `BGTaskSchedulerPermittedIdentifiers` (Config/Info.plist).
-    static let registrationIdentifier = "imranhc0.StarGazing.stacking.*"
-    /// Each submitted task gets this prefix plus a unique suffix, as the SDK requires.
+    /// Each submitted task gets this prefix plus a unique suffix. The wildcard form of it,
+    /// `imranhc0.StarGazing.stacking.*`, is what `BGTaskSchedulerPermittedIdentifiers` lists
+    /// (Config/Info.plist). The wildcard is never registered itself: see `run`.
     static let identifierPrefix = "imranhc0.StarGazing.stacking."
 
     /// The system declined to schedule the task (not permitted, no room, simulator).
@@ -31,14 +31,6 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
     private var pending: [String: Pending] = [:]
     private let logger = Logger(subsystem: "imranhc0.StarGazing", category: "background")
 
-    /// Call once as the app starts.
-    func register() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.registrationIdentifier, using: nil) { [weak self] task in
-            guard let task = task as? BGContinuedProcessingTask else { return }
-            self?.run(task)
-        }
-    }
-
     /// Submits the job to the system and waits for its result. Throws `SubmissionFailed`
     /// before the job has started if the system will not run it.
     func run(
@@ -55,6 +47,27 @@ nonisolated final class BackgroundRunner: @unchecked Sendable {
                 job: job, framesTotal: framesTotal, onProgress: onProgress, continuation: continuation
             )
             lock.unlock()
+
+            // The scheduler looks for a handler registered under exactly this identifier, and if
+            // there is none it raises an Objective-C exception, which Swift's `catch` cannot stop
+            // (the app dies instead of falling back to the foreground). A continued processing task
+            // is registered here, just before it is submitted, under its own unique identifier;
+            // registering the wildcard once at launch does not cover it.
+            let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { [weak self] task in
+                guard let task = task as? BGContinuedProcessingTask else { return }
+                self?.run(task)
+            }
+            guard registered else {
+                logger.error("The system did not accept a handler for the background task.")
+                if takePending(identifier) != nil {
+                    let reason = "The system did not accept a handler for the background task."
+                    continuation.resume(throwing: SubmissionFailed(underlying: NSError(
+                        domain: "StarGazing.BackgroundRunner", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: reason]
+                    )))
+                }
+                return
+            }
 
             let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
             // `.fail`, not `.queue`: a queued request can wait indefinitely (or be dropped when the

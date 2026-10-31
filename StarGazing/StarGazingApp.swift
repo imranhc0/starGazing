@@ -13,7 +13,6 @@ struct StarGazingApp: App {
 
     init() {
         let background = BackgroundRunner()
-        background.register()
         AppFiles.purgeOldResults()
         _model = State(initialValue: StackViewModel(
             runner: AppStackRunner(background: background),
