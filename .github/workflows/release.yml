@@ -34,7 +34,16 @@ jobs:
             exit 1
           fi
 
+      - name: Start the simulator
+        timeout-minutes: 10
+        run: |
+          # Boot it first, so a stuck simulator fails here with a clear message instead of
+          # leaving the test step silent.
+          xcrun simctl boot "iPhone 17" || true
+          xcrun simctl bootstatus "iPhone 17" -b
+
       - name: Run the tests
+        timeout-minutes: 25
         run: |
           # One retry: the simulator sometimes fails to load the test bundle on its first launch.
           attempt=1
