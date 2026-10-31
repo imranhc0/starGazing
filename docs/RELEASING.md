@@ -14,6 +14,8 @@ notes. Watch it under the repository's **Actions** tab; the release appears unde
 - **Version numbers** come from the tag: `v1.2.3` gives version `1.2.3`, and the build number is the
   workflow run number.
 - **Pre-releases.** A tag with a hyphen, such as `v1.0.0-beta.1`, is marked as a pre-release.
+- **Tests run first.** The workflow runs the unit tests (retrying once) before building. If they fail,
+  nothing is published.
 - **Re-running.** Re-running the job replaces the files on the existing release.
 
 ## What is attached

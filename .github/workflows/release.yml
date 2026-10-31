@@ -21,14 +21,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the Xcode version
+      - name: Select Xcode 27.2 and check the version
         run: |
+          # The project was last saved by Xcode 27.2. The image's default is older, so use 27.2 when present.
+          if [ -d /Applications/Xcode_27.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer
+          fi
           xcodebuild -version
           major=$(xcodebuild -version | awk 'NR==1 { split($2, v, "."); print v[1] }')
           if [ "$major" -lt 27 ]; then
             echo "::error::StarGazing needs Xcode 27 or newer, this runner has Xcode $major."
             exit 1
           fi
+
+      - name: Run the tests
+        run: |
+          # One retry: the simulator sometimes fails to load the test bundle on its first launch.
+          attempt=1
+          until xcodebuild test \
+              -project StarGazing.xcodeproj \
+              -scheme StarGazing \
+              -destination 'platform=iOS Simulator,name=iPhone 17' \
+              -only-testing:StarGazingTests \
+              -derivedDataPath build/tests; do
+            if [ "$attempt" -ge 2 ]; then
+              echo "::error::The tests failed, so no release was published."
+              exit 1
+            fi
+            echo "::warning::The test run failed; trying once more."
+            attempt=$((attempt + 1))
+            sleep 10
+          done
 
       - name: Build for iPhone (unsigned)
         run: |
