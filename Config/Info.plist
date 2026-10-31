@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>imranhc0.StarGazing.stacking.*</string>
+	</array>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>StarGazing saves finished star stacks to your photo library.</string>
+</dict>
+</plist>

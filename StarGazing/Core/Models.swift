@@ -1,0 +1,53 @@
+import Foundation
+
+nonisolated enum StackMode: Sendable {
+    case mean
+    case median
+    case trails
+}
+
+nonisolated struct Frame: Sendable {
+    let id: UUID
+    let assetID: String
+    let width: Int
+    let height: Int
+    let isRAW: Bool
+    let exposureSeconds: Double
+    let iso: Double
+}
+
+nonisolated enum FrameFailure: Error, Equatable, Sendable {
+    case tooFewStars(found: Int)
+    case noStars
+    case misaligned
+    case outOfFocus
+    case unreadable(String)
+}
+
+nonisolated enum StackRequestError: Error, Equatable {
+    case tooFewFrames(Int)
+    case tooManyFrames(Int)
+}
+
+nonisolated struct StackRequest: Sendable {
+    static let frameRange = 5...200
+
+    let frames: [Frame]
+    let mode: StackMode
+
+    static func validated(frames: [Frame], mode: StackMode) throws -> StackRequest {
+        if frames.count < frameRange.lowerBound {
+            throw StackRequestError.tooFewFrames(frames.count)
+        }
+        if frames.count > frameRange.upperBound {
+            throw StackRequestError.tooManyFrames(frames.count)
+        }
+        return StackRequest(frames: frames, mode: mode)
+    }
+}
+
+nonisolated struct StackResult: Sendable {
+    let outputURL: URL
+    let usedFrameIDs: [UUID]
+    let failures: [UUID: FrameFailure]
+}
