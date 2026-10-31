@@ -36,6 +36,17 @@ final class StackerTests: XCTestCase {
         XCTAssertLessThan(maxDifference(whole, tiled, width: 100, height: 100), 1e-4)
     }
 
+    func testTilesAreBigWhenThereAreFewPhotosAndSmallerAsTheyGrow() {
+        XCTAssertEqual(Stacker.adaptiveTileSize(frameCount: 10), 1024, "few photos: big tiles, less overhead")
+        XCTAssertLessThanOrEqual(Stacker.adaptiveTileSize(frameCount: 100), 384)
+        XCTAssertGreaterThanOrEqual(Stacker.adaptiveTileSize(frameCount: 200), 128)
+        // The working memory of a tile (every photo's tile at 16 bytes a pixel) stays bounded.
+        for frames in [5, 10, 30, 100, 200] {
+            let size = Stacker.adaptiveTileSize(frameCount: frames)
+            XCTAssertLessThanOrEqual(frames * size * size * 16, 260_000_000, "\(frames) photos at \(size)")
+        }
+    }
+
     func testStackReportsProgressAfterEachChunk() throws {
         var seen: [Double] = []
         let tile = TileRect.full(of: CGRect(x: 0, y: 0, width: 100, height: 100))

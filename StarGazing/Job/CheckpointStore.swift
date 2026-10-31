@@ -1,8 +1,8 @@
 import Foundation
 
 /// What a run has settled so far: which photos have been analysed, and why any were skipped.
-/// Each analysed photo's stars live in their own small file (see `CheckpointStore`), so saving
-/// progress after every photo stays cheap however many photos there are.
+/// What was learned about each photo (stars, sharpness) lives in its own small file (see
+/// `CheckpointStore`), so saving progress after every photo stays cheap however many photos there are.
 nonisolated struct Checkpoint: Codable, Sendable, Equatable {
     let jobID: UUID
     var completedFrameIDs: [UUID]
@@ -23,11 +23,11 @@ nonisolated struct CheckpointStore: Sendable {
         directory.appendingPathComponent("\(jobID.uuidString).checkpoint.json")
     }
 
-    /// Where one photo's detected stars are kept.
-    func starsURL(for frameID: UUID, jobID: UUID) -> URL {
+    /// Where what was learned about one photo (its stars and sharpness) is kept.
+    func analysisURL(for frameID: UUID, jobID: UUID) -> URL {
         directory
             .appendingPathComponent(jobID.uuidString, isDirectory: true)
-            .appendingPathComponent("\(frameID.uuidString).stars.json")
+            .appendingPathComponent("\(frameID.uuidString).analysis.json")
     }
 
     func save(_ checkpoint: Checkpoint) throws {
@@ -47,16 +47,16 @@ nonisolated struct CheckpointStore: Sendable {
         return checkpoint
     }
 
-    func saveStars(_ stars: [StarCentroid], for frameID: UUID, jobID: UUID) throws {
-        let url = starsURL(for: frameID, jobID: jobID)
+    func saveAnalysis(_ analysis: FrameAnalysis, for frameID: UUID, jobID: UUID) throws {
+        let url = analysisURL(for: frameID, jobID: jobID)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(stars).write(to: url, options: .atomic)
+        try JSONEncoder().encode(analysis).write(to: url, options: .atomic)
     }
 
     /// Nil when the file is missing or unreadable; the photo is then analysed again.
-    func loadStars(for frameID: UUID, jobID: UUID) -> [StarCentroid]? {
-        guard let data = try? Data(contentsOf: starsURL(for: frameID, jobID: jobID)) else { return nil }
-        return try? JSONDecoder().decode([StarCentroid].self, from: data)
+    func loadAnalysis(for frameID: UUID, jobID: UUID) -> FrameAnalysis? {
+        guard let data = try? Data(contentsOf: analysisURL(for: frameID, jobID: jobID)) else { return nil }
+        return try? JSONDecoder().decode(FrameAnalysis.self, from: data)
     }
 
     func remove(jobID: UUID) {

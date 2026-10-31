@@ -47,6 +47,18 @@ final class SkyMaskTests: XCTestCase {
         XCTAssertEqual(mask.ciImage().extent, CGRect(x: 0, y: 0, width: 200, height: 600))
     }
 
+    func testGroundFractionIsTheShareOfTheFrameBelowTheHorizon() {
+        let mask = SkyMasker.automaticMask(for: horizonImage(width: 200, height: 600, horizonY: 300))
+
+        XCTAssertEqual(mask.groundFraction, 0.5, accuracy: 0.05)
+    }
+
+    func testAFrameWithoutAHorizonHasNoGround() {
+        let mask = SkyMasker.automaticMask(for: uniformImage(width: 200, height: 600, gray: 0.1))
+
+        XCTAssertEqual(mask.groundFraction, 0, accuracy: 0.001)
+    }
+
     // MARK: - Helpers
 
     /// Brighter sky above `horizonY`, darker foreground below it.

@@ -23,7 +23,11 @@ nonisolated struct PostSettings: Sendable, Equatable {
 
     static let defaultStretch = 0.8
     static let defaultDenoise = 0.3
-    static let targetMedian: Float = 0.25
+    /// The brightness (linear light) the stretch lifts a picture's median to, at most. It is low on
+    /// purpose: a pitch-black astro frame needs lifting to show its stars, but a night photo that is
+    /// already lit (a city under cloud measured 0.038) must keep its dark sky. Aiming at 0.25 lifted
+    /// that sky to a light grey haze.
+    static let targetMedian: Float = 0.04
     static let minimumPower = 0.15
 
     var effectivePower: Double {

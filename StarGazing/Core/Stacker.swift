@@ -21,10 +21,21 @@ nonisolated struct AlignedFrame: Sendable {
 }
 
 nonisolated struct Stacker: Sendable {
-    /// Edge length of the working chunks. Peak scratch memory is about
-    /// frames × tileSize² × 16 bytes (RGBA float): 200 frames at 256 is about 210 MB.
-    var tileSize: Int = 256
+    /// Edge length of the working chunks, or nil to choose it from the number of photos (see
+    /// `adaptiveTileSize`). Peak scratch memory is about frames × tileSize² × 16 bytes (RGBA float).
+    var tileSize: Int?
     var clipSigma: Double = 2.5
+
+    /// The scratch memory one chunk may use: every photo's piece of it, at 16 bytes a pixel.
+    private static let tileMemoryBudget = 200_000_000.0
+
+    /// Big tiles mean less set-up work per pixel, so use the biggest that fit the memory budget:
+    /// 10 photos get 1024-pixel tiles, 100 photos get 320, 200 photos get 192.
+    static func adaptiveTileSize(frameCount: Int) -> Int {
+        let fit = (tileMemoryBudget / Double(max(frameCount, 1) * 16)).squareRoot()
+        let rounded = Int(fit / 64) * 64
+        return min(1024, max(128, rounded))
+    }
 
     /// Floor on the clipping width, as a fraction of the median, so identical frames
     /// with tiny differences are not thrown away.
@@ -58,13 +69,20 @@ nonisolated struct Stacker: Sendable {
         var ownsOutput = true
         defer { if ownsOutput { free(output) } }
 
-        let allChunks = chunks(of: rect)
+        let allChunks = chunks(of: rect, size: tileSize ?? Self.adaptiveTileSize(frameCount: frames.count))
         for (index, chunk) in allChunks.enumerated() {
             try Task.checkCancellation()
 
             let chunkWidth = Int(chunk.width)
             let chunkHeight = Int(chunk.height)
-            let buffers = warped.map { Self.render($0, over: chunk, with: context) }
+            // Each photo's piece of the chunk is rendered on its own thread.
+            var buffers = [[Float]](repeating: [], count: warped.count)
+            buffers.withUnsafeMutableBufferPointer { slots in
+                let target = slots
+                DispatchQueue.concurrentPerform(iterations: warped.count) { photo in
+                    target[photo] = Self.render(warped[photo], over: chunk, with: context)
+                }
+            }
             let reduced = reduce(buffers, pixelCount: chunkWidth * chunkHeight, mode: mode)
 
             // Bitmap rows run top-down, so place the chunk by its top edge.
@@ -93,8 +111,8 @@ nonisolated struct Stacker: Sendable {
 
     // MARK: - Chunking and rendering
 
-    private func chunks(of rect: CGRect) -> [CGRect] {
-        let step = CGFloat(max(1, tileSize))
+    private func chunks(of rect: CGRect, size: Int) -> [CGRect] {
+        let step = CGFloat(max(1, size))
         var result: [CGRect] = []
         var y = rect.minY
         while y < rect.maxY {
@@ -139,28 +157,40 @@ nonisolated struct Stacker: Sendable {
 
     // MARK: - Per-pixel combination
 
+    /// Pixels do not depend on one another, so the chunk is split into stripes combined on all the
+    /// processor's cores at once. Each stripe has its own scratch space and writes its own part of
+    /// the output, so nothing is shared while they run.
     private func reduce(_ buffers: [[Float]], pixelCount: Int, mode: StackMode) -> [Float] {
         var output = [Float](repeating: 0, count: pixelCount * 4)
-        var values = [Float](repeating: 0, count: buffers.count)
-        var deviations = [Float](repeating: 0, count: buffers.count)
+        let stripes = max(1, min(pixelCount / 4096, ProcessInfo.processInfo.activeProcessorCount * 4))
 
-        for pixel in 0..<pixelCount {
-            let base = pixel * 4
-            var count = 0
-            for buffer in buffers where buffer[base + 3] >= Self.coverageThreshold {
-                count += 1
-            }
-            guard count > 0 else { continue }
+        output.withUnsafeMutableBufferPointer { results in
+            let target = results
+            DispatchQueue.concurrentPerform(iterations: stripes) { stripe in
+                var values = [Float](repeating: 0, count: buffers.count)
+                var deviations = [Float](repeating: 0, count: buffers.count)
+                let first = pixelCount * stripe / stripes
+                let last = pixelCount * (stripe + 1) / stripes
 
-            for channel in 0..<3 {
-                var n = 0
-                for buffer in buffers where buffer[base + 3] >= Self.coverageThreshold {
-                    values[n] = buffer[base + channel]
-                    n += 1
+                for pixel in first..<last {
+                    let base = pixel * 4
+                    var count = 0
+                    for buffer in buffers where buffer[base + 3] >= Self.coverageThreshold {
+                        count += 1
+                    }
+                    guard count > 0 else { continue }
+
+                    for channel in 0..<3 {
+                        var n = 0
+                        for buffer in buffers where buffer[base + 3] >= Self.coverageThreshold {
+                            values[n] = buffer[base + channel]
+                            n += 1
+                        }
+                        target[base + channel] = combine(&values, &deviations, count: n, mode: mode)
+                    }
+                    target[base + 3] = 1
                 }
-                output[base + channel] = combine(&values, &deviations, count: n, mode: mode)
             }
-            output[base + 3] = 1
         }
         return output
     }

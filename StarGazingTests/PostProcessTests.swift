@@ -76,13 +76,32 @@ final class PostProcessTests: XCTestCase {
         XCTAssertEqual(TestImages.pixel(out, 10, 10).r, 0, accuracy: 0.02)
     }
 
-    func testAutomaticSettingsBrightenADarkImage() {
-        let dark = TestImages.constant(0.01, width: 64, height: 64)
+    func testAutomaticSettingsBrightenAPitchBlackSky() {
+        // A dark-sky astro frame: median 0.002 in linear light.
+        let dark = TestImages.constant(0.002, width: 64, height: 64)
         let settings = PostSettings.automatic(for: dark)
 
-        XCTAssertLessThan(settings.stretchPower, 1)
+        XCTAssertLessThan(settings.stretchPower, 0.7)
         let out = PostProcess.finish(dark, settings: settings)
-        XCTAssertGreaterThan(TestImages.pixel(out, 10, 10).r, 0.05)
+        XCTAssertGreaterThan(TestImages.pixel(out, 10, 10).r, 0.015)
+        XCTAssertLessThan(TestImages.pixel(out, 10, 10).r, 0.06, "lifted gently, still a dark sky")
+    }
+
+    func testANightPhotoThatIsAlreadyLitIsLeftAlone() {
+        // The median of a real city night sky (measured on a phone photo): 0.038 in linear light,
+        // which looks like a dark grey. The automatic stretch once lifted it to a light grey haze.
+        let night = TestImages.constant(0.038, width: 64, height: 64)
+        let settings = PostSettings.automatic(for: night)
+
+        XCTAssertGreaterThan(settings.stretchPower, 0.95)
+        let out = PostProcess.finish(night, settings: settings)
+        XCTAssertEqual(TestImages.pixel(out, 10, 10).r, 0.038, accuracy: 0.004)
+    }
+
+    func testABrightImageIsNeverDarkened() {
+        let bright = TestImages.constant(0.3, width: 64, height: 64)
+
+        XCTAssertEqual(PostSettings.automatic(for: bright).stretchPower, 1, accuracy: 1e-9)
     }
 
     func testZeroStrengthLeavesImageUnchanged() {

@@ -20,6 +20,19 @@ nonisolated struct SkyMask: Sendable {
         self.values = values
     }
 
+    /// The share of the frame's height, counted up from the bottom, that is foreground.
+    /// Zero when the whole frame is sky.
+    var groundFraction: Double {
+        var groundRows = 0
+        for row in stride(from: height - 1, through: 0, by: -1) {
+            let start = row * width
+            let mean = values[start..<(start + width)].reduce(0, +) / Float(width)
+            guard mean < 0.5 else { break }
+            groundRows += 1
+        }
+        return Double(groundRows) / Double(height)
+    }
+
     func value(atX x: Double, y: Double) -> Float {
         let column = min(width - 1, max(0, Int(x / fullWidth * Double(width))))
         let row = min(height - 1, max(0, Int((fullHeight - y) / fullHeight * Double(height))))

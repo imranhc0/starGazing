@@ -13,13 +13,28 @@ nonisolated enum StarDetector {
     static let windowRadius = 3
     static let peakRadius = 2
     static let suppressionRadius = 4.0
+    /// Stars are found on a copy reduced to this long side. A 36-megapixel frame is far more than
+    /// a star's position needs, and searching all of it was the slow part of looking at a photo.
+    static let workingSize = 2048
 
+    /// Stars in the image, in the image's own full-size coordinates.
     static func detect(in image: CIImage) -> [StarCentroid] {
-        guard let buffer = LuminanceBuffer.render(image),
+        guard let buffer = LuminanceBuffer.render(image, maxDimension: workingSize),
               buffer.width > 2 * peakRadius, buffer.height > 2 * peakRadius else {
             return []
         }
-        return detect(luminance: buffer.values, width: buffer.width, height: buffer.height)
+        return stars(in: buffer, extent: image.extent)
+    }
+
+    /// Detects in a (possibly reduced) rendering of an image that had the given full-size extent,
+    /// and scales the positions back to full size.
+    static func stars(in buffer: LuminanceBuffer, extent: CGRect) -> [StarCentroid] {
+        let full = extent.integral
+        let scaleX = Double(buffer.width) / Double(full.width)
+        let scaleY = Double(buffer.height) / Double(full.height)
+        return detect(luminance: buffer.values, width: buffer.width, height: buffer.height).map {
+            StarCentroid(x: $0.x / scaleX, y: $0.y / scaleY, flux: $0.flux)
+        }
     }
 
     /// Finds local peaks above a robust noise threshold and refines each with a

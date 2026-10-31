@@ -14,11 +14,15 @@ StarGazing lines the stars up, combines the photos, and saves the result back to
   - **Clean sky:** a sigma-clipped average that lowers noise and keeps stars sharp.
   - **Median:** also removes planes and satellites that cross only some frames.
   - **Star trails:** keeps the brightest value at each pixel, so stars become streaks.
-- **Finds the stars itself.** It detects stars in every photo, aligns them, and picks the photo with
-  the most stars as the reference. Photos it can't use (clouds, too few stars, can't be read) are
-  skipped and listed with a reason.
-- **Keeps the ground sharp.** The sky is aligned on the stars; the foreground is stacked as shot, and
-  an automatic sky mask blends the two.
+- **Starts from the sharpest photo.** The sharpest frame of the burst is the reference, so the
+  result is as crisp as the best single photo. Photos it can't use (can't be read, can't be lined up,
+  no stars in a sky shot) are skipped and listed with a reason.
+- **Lines photos up on what is there.** In a night-sky shot the sky is aligned on its stars and the
+  ground on the ground's own detail (it holds still on a tripod, and moves on a tracked mount or in
+  your hand). An ordinary night scene, like a city, has no stars, so everything is aligned on the
+  picture's detail. An automatic sky mask blends sky and ground.
+- **Keeps the sky's mood.** The brightness stretch only lifts very dark skies, gently. A night photo
+  that is already lit, like a city under cloud, keeps its dark sky.
 - **Picks up where it stopped.** Progress is saved after every photo. If the run is interrupted,
   the picker offers to resume it.
 - **Before and after.** A draggable slider compares an original photo with the stacked result.
@@ -63,9 +67,10 @@ Photos library
    │  FrameLoader      decode JPEG/HEIC/RAW into linear light, in the sensor's orientation
    ▼
 StackJob (actor)
-   │  1. per photo     detect stars, save them, checkpoint            (StarDetector)
-   │  2. all photos    pick the reference (most stars), align the rest (StarAligner)
-   │  3. final stack   sky: aligned, foreground: as shot              (Stacker, in tiles)
+   │  1. per photo     measure stars and sharpness, checkpoint        (FrameAnalysis)
+   │  2. all photos    reference = the sharpest; sky shots: align the sky on stars (StarAligner)
+   │  3. final stack   ground (or the whole scene, if no stars) aligned on its own
+   │                   detail (DenseAligner); combined in tiles         (Stacker)
    ▼
 PostProcess            blend through the sky mask (SkyMasker), stretch, denoise, crop to the
                        area every photo covers, orient like the reference photo, export
@@ -101,8 +106,9 @@ docs/                design spec, implementation plan, style sheet, release guid
   tasks ("BGTaskScheduler is not available on this platform"), so there stacking always runs in the
   foreground. A copy re-signed by a
   side-loading tool gets a new bundle ID and loses the background option.
-- **The foreground is not aligned.** That suits a camera on a tripod. Handheld or sky-tracking shots
-  would blur the ground.
+- **Alignment is a shift, a small rotation and a tiny scale change.** Strong perspective or nearby
+  objects against a distant skyline (parallax) can still blur a little. There is no local, per-tile
+  alignment yet.
 - **RAW decoding is untested** because there is no sample file in the repository.
 
 ## Documentation
