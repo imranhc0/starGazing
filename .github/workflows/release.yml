@@ -105,12 +105,21 @@ jobs:
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
 
+          # Release notes: docs/release-notes/<tag>.md when it is in the tagged commit. Otherwise
+          # GitHub lists merged pull requests, which is close to empty for a repo without any.
+          notes_file="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes_file" ]; then
+            notes=(--notes-file "$notes_file")
+          else
+            notes=(--generate-notes)
+          fi
+
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
               --title "StarGazing $GITHUB_REF_NAME" \
-              --generate-notes \
+              "${notes[@]}" \
               --verify-tag \
               $prerelease
           fi

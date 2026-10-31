@@ -2,6 +2,12 @@
 
 ## Cut a release
 
+1. Write the release notes in `docs/release-notes/<tag>.md` (copy the last one and edit it), and
+   commit it. If the file is in the tagged commit, it becomes the release notes. If it isn't,
+   GitHub generates a list from merged pull requests, which is nearly empty in a repo that doesn't
+   use them.
+2. Tag and push:
+
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
