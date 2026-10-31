@@ -25,7 +25,7 @@ nonisolated struct LuminanceBuffer: Sendable {
         guard width > 0, height > 0 else { return nil }
 
         var pixels = [Float](repeating: 0, count: width * height * 4)
-        let context = CIContext(options: nil)
+        let context = FloatContext.make()
         pixels.withUnsafeMutableBytes { buffer in
             context.render(
                 source,
